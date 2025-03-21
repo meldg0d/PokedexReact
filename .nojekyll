@@ -1,0 +1,5 @@
+﻿# Create an empty .nojekyll file in your project root
+touch .nojekyll
+
+# Also create it in the public directory so it gets included in the build
+touch public/.nojekyll
