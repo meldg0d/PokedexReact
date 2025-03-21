@@ -5,7 +5,7 @@ function Header() {
     return (
         <header className="site-header">
             <div className="logo">
-                <Link to="/">My React App</Link>
+                <Link to="/">PokeDex</Link>
             </div>
             <Navigation />
         </header>

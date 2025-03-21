@@ -4,6 +4,7 @@ import Footer from './components/Footer'
 import Home from './pages/Home'
 import About from './pages/About'
 import NotFound from './pages/NotFound';
+import PokemonDetail from './pages/PokemonDetail'
 import './App.css'
 
 
@@ -17,6 +18,8 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Home />} />
                         <Route path="/about" element={<About />} />
+                        <Route path="/pokemon/:id" element={<PokemonDetail />} />
+
                         <Route path="*" element={<NotFound />} />
                     </Routes>
                 </main>

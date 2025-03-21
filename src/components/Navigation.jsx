@@ -15,8 +15,8 @@ function Navigation() {
                     </NavLink>
                 </li>
                 <li>
-                    <NavLink to="/contact" className={({ isActive }) => isActive ? 'active' : ''}>
-                        Contact
+                    <NavLink to="/random-link" className={({ isActive }) => isActive ? 'active' : ''}>
+                        Not Found
                     </NavLink>
                 </li>
             </ul>
