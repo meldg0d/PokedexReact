@@ -10,14 +10,14 @@ function Home() {
     const [totalPages, setTotalPages] = useState(0);
     const pokemonPerPage = 12;
 
-
+    // State for storing all Pokemon
     const [allPokemonList, setAllPokemonList] = useState([]);
     const [isAllPokemonLoaded, setIsAllPokemonLoaded] = useState(false);
 
-
+    // Fetch initial pokemon list with pagination
     useEffect(() => {
         const fetchPokemonList = async () => {
-            if (searchTerm) return;
+            if (searchTerm) return; // Skip if search is active
 
             setIsLoading(true);
             try {
