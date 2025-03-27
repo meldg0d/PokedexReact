@@ -1,227 +1,142 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+    useQuery,
+    useQueryClient
+} from '@tanstack/react-query';
 
 function Home() {
-    const [pokemonList, setPokemonList] = useState([]);
-    const [detailedPokemon, setDetailedPokemon] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(0);
     const pokemonPerPage = 12;
+    const queryClient = useQueryClient();
 
-    // State for storing all Pokemon
-    const [allPokemonList, setAllPokemonList] = useState([]);
-    const [isAllPokemonLoaded, setIsAllPokemonLoaded] = useState(false);
+    // Function to fetch a page of Pokemon
+    const fetchPokemonPage = async ({ pageParam = 0 }) => {
+        const response = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=${pokemonPerPage}&offset=${pageParam}`);
+        const data = await response.json();
 
-    // Fetch initial pokemon list with pagination
-    useEffect(() => {
-        const fetchPokemonList = async () => {
-            if (searchTerm) return; // Skip if search is active
-
-            setIsLoading(true);
-            try {
-                const offset = (currentPage - 1) * pokemonPerPage;
-                const response = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=${pokemonPerPage}&offset=${offset}`);
-                const data = await response.json();
-
-                setPokemonList(data.results);
-                setTotalPages(Math.ceil(data.count / pokemonPerPage));
-
-                // Fetch detailed info for each Pokemon
-                const detailedData = await Promise.all(
-                    data.results.map(async (pokemon) => {
-                        const pokemonResponse = await fetch(pokemon.url);
-                        return pokemonResponse.json();
-                    })
-                );
-
-                setDetailedPokemon(detailedData);
-                setIsLoading(false);
-            } catch (error) {
-                console.error('Error fetching Pokemon:', error);
-                setIsLoading(false);
-            }
-        };
-
-        fetchPokemonList();
-    }, [currentPage, searchTerm]);
-
-    // Fetch and store the complete Pokemon list
-    useEffect(() => {
-        const loadAllPokemon = async () => {
-            // Check if we already have the data in localStorage
-            const cachedPokemonList = localStorage.getItem('allPokemonList');
-            const cachedTimestamp = localStorage.getItem('pokemonListTimestamp');
-
-            // Use cached data if it exists and is less than 24 hours old
-            if (cachedPokemonList && cachedTimestamp) {
-                const cacheAge = Date.now() - parseInt(cachedTimestamp);
-                const oneDayInMs = 24 * 60 * 60 * 1000;
-
-                if (cacheAge < oneDayInMs) {
-                    console.log('Loading Pokemon list from cache');
-                    setAllPokemonList(JSON.parse(cachedPokemonList));
-                    setIsAllPokemonLoaded(true);
-                    return;
-                }
-            }
-
-            // Otherwise fetch the full list
-            try {
-                console.log('Fetching complete Pokemon list in background');
-                const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=2000');
-                const data = await response.json();
-
-                setAllPokemonList(data.results);
-                setIsAllPokemonLoaded(true);
-
-                // Store in localStorage with timestamp
-                localStorage.setItem('allPokemonList', JSON.stringify(data.results));
-                localStorage.setItem('pokemonListTimestamp', Date.now().toString());
-
-                console.log('Complete Pokemon list cached');
-            } catch (error) {
-                console.error('Error fetching complete Pokemon list:', error);
-            }
-        };
-
-        // Don't load if already loaded
-        if (!isAllPokemonLoaded && !searchTerm) {
-            loadAllPokemon();
-        }
-    }, [isAllPokemonLoaded, searchTerm]);
-
-    // Handle search with partial matching using cached data
-    const handleSearch = async (e) => {
-        e.preventDefault();
-
-        if (!searchTerm.trim()) {
-            clearSearch();
-            return;
+        // Pre-fetch the next page
+        if (data.next) {
+            const nextOffset = (pageParam / pokemonPerPage + 1) * pokemonPerPage;
+            queryClient.prefetchQuery({
+                queryKey: ['pokemonList', nextOffset],
+                queryFn: () => fetchPokemonPage({ pageParam: nextOffset })
+            });
         }
 
-        setIsLoading(true);
-        try {
-            // First try direct search by name or ID (for exact matches or ID search)
+        return data;
+    };
+
+    // Function to fetch detailed Pokemon info
+    const fetchPokemonDetails = async (urls) => {
+        return Promise.all(
+            urls.map(async (url) => {
+                const response = await fetch(url);
+                return response.json();
+            })
+        );
+    };
+
+    // Query for paginated Pokemon list
+    const {
+        data: paginatedData,
+        isLoading: isPaginatedLoading,
+        isFetching: isPaginatedFetching
+    } = useQuery({
+        queryKey: ['pokemonList', (currentPage - 1) * pokemonPerPage],
+        queryFn: () => fetchPokemonPage({ pageParam: (currentPage - 1) * pokemonPerPage }),
+        enabled: !searchTerm,
+        keepPreviousData: true,
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
+
+    // Query for complete Pokemon list (used for search)
+    const {
+        data: completeListData,
+    } = useQuery({
+        queryKey: ['allPokemon'],
+        queryFn: async () => {
+            const response = await fetch('https://pokeapi.co/api/v2/pokemon?limit=2000');
+            const data = await response.json();
+            return data.results;
+        },
+        // Keep this data fresh for a whole day
+        staleTime: 1000 * 60 * 60 * 24, // 24 hours
+    });
+
+    // Query for pokemon details based on paginated results
+    const {
+        data: detailedPokemon = [],
+        isLoading: isDetailedLoading
+    } = useQuery({
+        queryKey: ['detailedPokemon', paginatedData?.results?.map(p => p.url)],
+        queryFn: () => fetchPokemonDetails(paginatedData.results.map(p => p.url)),
+        enabled: !!paginatedData && !searchTerm,
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
+
+    // Query for search results
+    const {
+        data: searchResults = [],
+        isLoading: isSearchLoading,
+        refetch: refetchSearch,
+    } = useQuery({
+        queryKey: ['pokemonSearch', searchTerm],
+        queryFn: async () => {
+            // Direct search by exact name or ID
             if (/^\d+$/.test(searchTerm) || searchTerm.length > 3) {
                 try {
                     const directResponse = await fetch(`https://pokeapi.co/api/v2/pokemon/${searchTerm.toLowerCase()}`);
                     if (directResponse.ok) {
                         const data = await directResponse.json();
-                        setDetailedPokemon([data]);
-                        setPokemonList([{ name: data.name, url: `https://pokeapi.co/api/v2/pokemon/${data.id}/` }]);
-                        setTotalPages(1);
-                        setIsLoading(false);
-                        return;
+                        return [data];
                     }
                     // eslint-disable-next-line no-unused-vars
                 } catch (directError) {
-                    // Direct search failed, continue to partial search
+                    // Continue to partial search
                 }
             }
 
-            // If we have the cached list, use it for searching
-            if (isAllPokemonLoaded && allPokemonList.length > 0) {
-                console.log('Searching in cached Pokemon list');
-
-                // Filter for partial matches
+            // If we have the complete list, search it
+            if (completeListData?.length > 0) {
                 const searchTermLower = searchTerm.toLowerCase();
-                const filteredResults = allPokemonList.filter(pokemon =>
+                const filteredResults = completeListData.filter(pokemon =>
                     pokemon.name.includes(searchTermLower)
                 );
 
                 if (filteredResults.length > 0) {
                     // Limit results to first 20 matches
                     const limitedResults = filteredResults.slice(0, 20);
-                    setPokemonList(limitedResults);
-
-                    // Fetch detailed data for each filtered Pokemon
-                    const detailedData = await Promise.all(
-                        limitedResults.map(async (pokemon) => {
-                            const pokemonResponse = await fetch(pokemon.url);
-                            return pokemonResponse.json();
-                        })
-                    );
-
-                    setDetailedPokemon(detailedData);
-                    setTotalPages(Math.ceil(filteredResults.length / pokemonPerPage));
-                } else {
-                    alert('No Pokémon found matching your search!');
-                }
-            } else {
-                // Fall back to fetching if cache is not available
-                console.log('Cache not available, fetching from API');
-                const listResponse = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=1000`);
-                const listData = await listResponse.json();
-
-                // Filter for partial matches
-                const searchTermLower = searchTerm.toLowerCase();
-                const filteredResults = listData.results.filter(pokemon =>
-                    pokemon.name.includes(searchTermLower)
-                );
-
-                if (filteredResults.length > 0) {
-                    // Limit results to first 20 matches
-                    const limitedResults = filteredResults.slice(0, 20);
-                    setPokemonList(limitedResults);
-
-                    // Fetch detailed data for each filtered Pokemon
-                    const detailedData = await Promise.all(
-                        limitedResults.map(async (pokemon) => {
-                            const pokemonResponse = await fetch(pokemon.url);
-                            return pokemonResponse.json();
-                        })
-                    );
-
-                    setDetailedPokemon(detailedData);
-                    setTotalPages(Math.ceil(filteredResults.length / pokemonPerPage));
-                } else {
-                    alert('No Pokémon found matching your search!');
+                    const detailedData = await fetchPokemonDetails(limitedResults.map(p => p.url));
+                    return detailedData;
                 }
             }
-        } catch (error) {
-            console.error('Error searching Pokemon:', error);
+            return [];
+        },
+        enabled: !!searchTerm && searchTerm.length > 0 && !!completeListData,
+        staleTime: 1000 * 60 * 5, // 5 minutes
+    });
+
+    // Handle search submission
+    const handleSearch = async (e) => {
+        e.preventDefault();
+        if (!searchTerm.trim()) {
+            clearSearch();
+            return;
         }
-        setIsLoading(false);
+        await refetchSearch();
     };
 
     // Clear search
     const clearSearch = () => {
         setSearchTerm('');
         setCurrentPage(1);
-
-        // Fetch the initial page of Pokemon again
-        const fetchInitialPokemon = async () => {
-            setIsLoading(true);
-            try {
-                const response = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=${pokemonPerPage}&offset=0`);
-                const data = await response.json();
-
-                setPokemonList(data.results);
-                setTotalPages(Math.ceil(data.count / pokemonPerPage));
-
-                // Fetch detailed info for each Pokemon
-                const detailedData = await Promise.all(
-                    data.results.map(async (pokemon) => {
-                        const pokemonResponse = await fetch(pokemon.url);
-                        return pokemonResponse.json();
-                    })
-                );
-
-                setDetailedPokemon(detailedData);
-            } catch (error) {
-                console.error('Error fetching Pokemon:', error);
-            }
-            setIsLoading(false);
-        };
-
-        fetchInitialPokemon();
     };
 
     // Navigation
     const goToNextPage = () => {
-        if (currentPage < totalPages) {
+        if (currentPage < (paginatedData?.count / pokemonPerPage)) {
             setCurrentPage(currentPage + 1);
         }
     };
@@ -238,6 +153,9 @@ function Home() {
 
     // Generate pagination numbers
     const generatePaginationNumbers = () => {
+        if (!paginatedData) return [];
+
+        const totalPages = Math.ceil(paginatedData.count / pokemonPerPage);
         const pageNumbers = [];
         const maxPageButtons = 5;
 
@@ -254,6 +172,12 @@ function Home() {
 
         return pageNumbers;
     };
+
+    // Determine if we're loading
+    const isLoading = isPaginatedLoading || isDetailedLoading || isSearchLoading || isPaginatedFetching;
+
+    // Determine what Pokemon data to display
+    const displayPokemon = searchTerm ? searchResults : detailedPokemon;
 
     return (
         <div className="pokemon-home">
@@ -283,7 +207,7 @@ function Home() {
                 <>
                     {/* Pokemon Grid */}
                     <div className="pokemon-grid">
-                        {detailedPokemon.map((pokemon) => (
+                        {displayPokemon.map((pokemon) => (
                             <Link
                                 to={`/pokemon/${pokemon.id}`}
                                 className="pokemon-card"
@@ -303,8 +227,8 @@ function Home() {
                                                 key={type.type.name}
                                                 className={`type-badge ${type.type.name}`}
                                             >
-                        {type.type.name}
-                      </span>
+                                                {type.type.name}
+                                            </span>
                                         ))}
                                     </div>
                                 </div>
@@ -313,7 +237,7 @@ function Home() {
                     </div>
 
                     {/* Pagination */}
-                    {!searchTerm && totalPages > 1 && (
+                    {!searchTerm && paginatedData && (
                         <div className="pagination">
                             <button
                                 onClick={goToPrevPage}
@@ -335,7 +259,7 @@ function Home() {
 
                             <button
                                 onClick={goToNextPage}
-                                disabled={currentPage === totalPages}
+                                disabled={currentPage === Math.ceil(paginatedData.count / pokemonPerPage)}
                                 className="page-button"
                             >
                                 Next

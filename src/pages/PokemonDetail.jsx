@@ -1,41 +1,41 @@
-﻿
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+﻿import { useParams, Link } from 'react-router-dom';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {useEffect} from "react";
 
 function PokemonDetail() {
     const { id } = useParams();
-    const [pokemon, setPokemon] = useState(null);
-    const [species, setSpecies] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
 
-    useEffect(() => {
-        const fetchPokemonDetails = async () => {
-            setIsLoading(true);
-            try {
-                // Fetch basic Pokemon data
-                const pokemonResponse = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
-                if (!pokemonResponse.ok) {
-                    throw new Error('Pokemon not found');
-                }
-                const pokemonData = await pokemonResponse.json();
-                setPokemon(pokemonData);
-
-                // Fetch species data for description
-                const speciesResponse = await fetch(pokemonData.species.url);
-                const speciesData = await speciesResponse.json();
-                setSpecies(speciesData);
-
-                setIsLoading(false);
-            } catch (error) {
-                console.error('Error fetching Pokemon details:', error);
-                setError(error.message);
-                setIsLoading(false);
+    // Query for fetching basic Pokemon data
+    const {
+        data: pokemon,
+        isLoading: isPokemonLoading,
+        error: pokemonError
+    } = useQuery({
+        queryKey: ['pokemon', id],
+        queryFn: async () => {
+            const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
+            if (!response.ok) {
+                throw new Error('Pokemon not found');
             }
-        };
+            return response.json();
+        },
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
 
-        fetchPokemonDetails();
-    }, [id]);
+    // Query for fetching species data (dependent on the first query)
+    const {
+        data: species,
+        isLoading: isSpeciesLoading
+    } = useQuery({
+        queryKey: ['pokemonSpecies', pokemon?.species?.url],
+        queryFn: async () => {
+            const response = await fetch(pokemon.species.url);
+            return response.json();
+        },
+        // Only run this query if we have the species URL from the first query
+        enabled: !!pokemon?.species?.url,
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
 
     // Get English flavor text
     const getEnglishFlavorText = () => {
@@ -52,8 +52,41 @@ function PokemonDetail() {
     const prevPokemonId = pokemon && pokemon.id > 1 ? pokemon.id - 1 : null;
     const nextPokemonId = pokemon ? pokemon.id + 1 : null;
 
+    // Pre-fetch adjacent Pokemon data for smoother navigation
+    const queryClient = useQueryClient();
+
+    // Use effect to prefetch adjacent Pokemon
+    useEffect(() => {
+        if (pokemon) {
+            // Prefetch previous Pokemon if it exists
+            if (prevPokemonId) {
+                queryClient.prefetchQuery({
+                    queryKey: ['pokemon', prevPokemonId.toString()],
+                    queryFn: async () => {
+                        const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${prevPokemonId}`);
+                        return response.json();
+                    },
+                });
+            }
+
+            // Prefetch next Pokemon
+            if (nextPokemonId) {
+                queryClient.prefetchQuery({
+                    queryKey: ['pokemon', nextPokemonId.toString()],
+                    queryFn: async () => {
+                        const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextPokemonId}`);
+                        return response.json();
+                    },
+                });
+            }
+        }
+    }, [pokemon, prevPokemonId, nextPokemonId, queryClient]);
+
+    // Combined loading state
+    const isLoading = isPokemonLoading || isSpeciesLoading;
+
     if (isLoading) return <div className="loading">Loading Pokémon details...</div>;
-    if (error) return <div className="error">Error: {error}</div>;
+    if (pokemonError) return <div className="error">Error: {pokemonError.message}</div>;
     if (!pokemon) return <div className="error">Pokémon not found</div>;
 
     return (
@@ -91,8 +124,8 @@ function PokemonDetail() {
                                     key={type.type.name}
                                     className={`type-badge-large ${type.type.name}`}
                                 >
-                  {type.type.name}
-                </span>
+                                    {type.type.name}
+                                </span>
                             ))}
                         </div>
                     </div>
