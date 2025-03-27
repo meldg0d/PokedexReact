@@ -93,7 +93,7 @@ src/
 
 ## 🔄 Caching System
 
-- Stores the complete Pokémon list in localStorage
+- Stores the complete Pokémon list in React Query
 - Caches visited pages for instant navigation
 - Prefetches adjacent pages for smoother browsing
 
