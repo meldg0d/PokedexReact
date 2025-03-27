@@ -20,7 +20,7 @@ Check out the live demo: [PokéExplorer App](https://github.meldgod.dk/PokedexRe
 - React.js for building the user interface
 - React Router for navigation between views
 - Fetch API for retrieving data from PokéAPI
-- Local storage for caching Pokémon data
+- React Query for caching Pokémon data
 
 ## 🛠️ Installation and Setup
 
